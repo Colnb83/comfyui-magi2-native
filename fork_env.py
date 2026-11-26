@@ -1,6 +1,7 @@
 """Locating and importing the MAGI-2 fork, shared by both node families."""
 
 import contextlib
+import logging
 import os
 import sys
 
@@ -59,6 +60,7 @@ def prepare_fork_import():
     os.environ.setdefault("MAGI2_CKPT_ROOT", "/MAGI2_CKPT_ROOT-not-set")
     if path not in sys.path:
         sys.path.insert(0, path)
+        logging.info("[MAGI-2] using the MAGI-2 inference code at %s", path)
     return path
 
 
