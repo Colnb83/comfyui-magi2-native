@@ -10,7 +10,6 @@ set here before the first import. A value already present in the environment
 wins, which lets a launcher override any of them.
 """
 
-import contextlib
 import gc
 import logging
 import os
@@ -23,27 +22,9 @@ import torch
 import comfy.model_management
 import comfy.utils
 
-PACK_DIR = os.path.dirname(os.path.realpath(__file__))
-CLIP_SECONDS = 10.0
+from .fork_env import ENV_DEFAULTS, fork_dir as _fork_dir, image_numerics as _image_numerics
 
-# Single process, no MagiCompiler, PyTorch's flash kernel, NVFP4 experts,
-# one guidance branch per forward (halves the activations alive at once).
-ENV_DEFAULTS = {
-    "MAGI2_NO_DIST": "1",
-    "MAGI2_NO_MAGI_COMPILER": "1",
-    "MAGI2_ATTN_BACKEND": "sdpa",
-    "MAGI2_MOE_FP8": "1",
-    "MAGI2_MOE_QUANT": "nvfp4",
-    "MAGI2_CFG_SEQUENTIAL": "1",
-    "MAGI2_PREVIEW_OFFLOAD_MODE": "gpu",
-    "MAGI2_TEXT_ENC_OFFLOAD_MODE": "cpu",
-    "MAGI2_VAE_OFFLOAD_MODE": "roundtrip",  # VAEs wait in host RAM while denoising (2.8 GiB)
-    "MAGI2_REFINER_OFFLOAD_MODE": "roundtrip",
-    # 1080p: drop the preview experts while the refiner runs (re-streamed for the
-    # next clip) and use the memory-bounded refiner forward.
-    "MAGI2_PREVIEW_RELEASE_EXPERTS": "1",
-    "MAGI2_REFINER_LOWMEM": "1",
-}
+CLIP_SECONDS = 10.0
 
 MODES = {
     # mode -> (config relative to the fork, resolutions it can run)
@@ -56,17 +37,6 @@ _STATE = {"pipeline": None, "key": None}
 
 class MagiNativeError(RuntimeError):
     pass
-
-
-def _fork_dir():
-    path = os.environ.get("MAGI2_FORK_DIR") or os.path.join(PACK_DIR, "magi2_fork")
-    path = os.path.realpath(path)
-    if not os.path.isfile(os.path.join(path, "inference", "pipeline", "entry.py")):
-        raise MagiNativeError(
-            f"MAGI-2 fork not found at {path}: put the fork (the directory holding inference/ and "
-            "configs/) at magi2_fork/ inside this node pack, or set MAGI2_FORK_DIR"
-        )
-    return path
 
 
 def _resolve_dirs(ckpt_root, nvfp4_ckpt):
@@ -88,18 +58,6 @@ def _resolve_dirs(ckpt_root, nvfp4_ckpt):
             "the FP8 experts do not fit on one 96 GB card"
         )
     return os.path.realpath(ckpt_root), os.path.realpath(nvfp4_ckpt)
-
-
-@contextlib.contextmanager
-def _image_numerics():
-    """The reference Docker image runs fp32 matmuls as TF32; match it while
-    MAGI-2 code runs and put ComfyUI's setting back afterwards."""
-    saved = torch.backends.cuda.matmul.allow_tf32
-    torch.backends.cuda.matmul.allow_tf32 = True
-    try:
-        yield
-    finally:
-        torch.backends.cuda.matmul.allow_tf32 = saved
 
 
 def _free_gpu():
