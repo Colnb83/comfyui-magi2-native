@@ -62,8 +62,35 @@ Notes:
   the negative branch too, as MAGI-2 does). The image conditions the clip as a reference
   the prompt points at; it is letterboxed, not cropped.
 - Not in the model path: ComfyUI's own text-encoder loader (the text encoder runs through
-  the MAGI-2 node on the CPU, as in MAGI-2's pipeline). LoRA nodes have no key map for this
-  model.
+  the MAGI-2 node on the CPU, as in MAGI-2's pipeline).
+
+### LoRA
+
+The stock LoRA loader (**LoraLoaderModelOnly**) works on the MAGI-2 model. Keys follow
+ComfyUI's generic format, the weight's name without `.weight`:
+
+```
+diffusion_model.block.layers.5.attention.linear_qkv.lora_A.weight   [rank, in]
+diffusion_model.block.layers.5.attention.linear_qkv.lora_B.weight   [out, rank]
+diffusion_model.block.layers.5.attention.linear_qkv.alpha
+```
+
+(`lora_unet_block_layers_5_attention_linear_qkv.lora_down/up.weight` works too, and
+`<parameter name>.diff` adds a full difference to any floating-point parameter.)
+
+- **What can be patched:** the attention and MLP linears, router, norms and adapters, about
+  10 GiB of bf16/fp32 weights. The mixture-of-experts tensors are packed 4-bit codes and
+  cannot take a delta: patches aimed at them are dropped with a warning.
+- **Precision:** ComfyUI merges a LoRA into the bf16 weights. bf16 keeps about three
+  significant digits, so a small delta is applied noisily: in a test with random LoRAs, a
+  delta of 3% of the weight's norm landed with 5.5% error, one of 30% with 0.6% error.
+- **Switching** a LoRA or its strength reloads the model's weights from disk.
+- There are no public MAGI-2 LoRAs yet. `tools/adapter_to_comfy_lora.py` converts adapters
+  from the fork's (work-in-progress) trainer into this format.
+
+Tested with a synthetic LoRA on four layers: the applied weight change matches the LoRA at
+strength 1.0 and 0.5, the output moves (1.4e-2 against a run-to-run 7.8e-3 for a 30% delta),
+switching back restores the original weights exactly, and unloading frees the GPU.
 
 Measured (isolated ComfyUI, `/prompt`, real weights, fox prompt, GPU 1 beside a desktop):
 

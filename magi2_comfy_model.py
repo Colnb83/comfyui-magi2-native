@@ -94,10 +94,36 @@ class MAGI2ModelPatcher(comfy.model_patcher.ModelPatcher):
     fully on the GPU or not at all. This patcher never loads or unloads a part."""
 
     def load(self, device_to=None, lowvram_model_memory=0, force_patch_weights=False, full_load=False):
+        # The weights need most of the card in one go. Hand PyTorch's cached blocks
+        # (left by a previous load or by sampling) back first, or the allocator can
+        # fail to fit them although enough memory is free in total.
+        comfy.model_management.soft_empty_cache()
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
         return super().load(device_to, lowvram_model_memory=0, force_patch_weights=force_patch_weights, full_load=True)
 
     def partially_unload(self, device_to, memory_to_free=0, force_patch_weights=False):
         return 0  # nothing freed in part; the caller then unloads the whole model
+
+    def add_patches(self, patches, strength_patch=1.0, strength_model=1.0):
+        # LoRA and weight-diff patches apply to the floating-point weights (attention,
+        # MLP linears, router, norms). The NVFP4 expert tensors are packed 4-bit codes:
+        # a delta cannot be added to them, so such patches are dropped with a warning.
+        state = self.model.state_dict()
+        usable, skipped = {}, []
+        for key, value in patches.items():
+            name = key[0] if isinstance(key, tuple) else key
+            target = state.get(name)
+            if target is not None and not target.is_floating_point():
+                skipped.append(name)
+            else:
+                usable[key] = value
+        if skipped:
+            logging.warning(
+                "[MAGI-2] %d patch(es) target NVFP4 expert tensors and were not applied, e.g. %s",
+                len(skipped), skipped[0],
+            )
+        return super().add_patches(usable, strength_patch, strength_model)
 
 
 # -----------------------------------------------------------------------------
