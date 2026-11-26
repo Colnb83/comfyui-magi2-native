@@ -1,0 +1,5 @@
+{
+  "extends": "../magi2_preview.json",
+  "engine_config": { "cp_size": 1, "ep_size": 1 },
+  "arch_config": { "moe_config": { "num_experts": 128 } }
+}

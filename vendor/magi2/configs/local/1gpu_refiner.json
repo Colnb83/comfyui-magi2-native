@@ -1,0 +1,4 @@
+{
+  "extends": "../magi2_refiner.json",
+  "engine_config": { "cp_size": 1, "ep_size": 1 }
+}

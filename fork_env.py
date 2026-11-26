@@ -33,7 +33,12 @@ class MagiForkError(RuntimeError):
 
 
 def fork_dir():
-    path = os.environ.get("MAGI2_FORK_DIR") or os.path.join(PACK_DIR, "magi2_fork")
+    # MAGI2_FORK_DIR, then a development checkout at magi2_fork/, then the vendored copy.
+    path = os.environ.get("MAGI2_FORK_DIR")
+    if not path:
+        path = os.path.join(PACK_DIR, "magi2_fork")
+        if not os.path.exists(path):
+            path = os.path.join(PACK_DIR, "vendor", "magi2")
     path = os.path.realpath(path)
     if not os.path.isfile(os.path.join(path, "inference", "pipeline", "entry.py")):
         raise MagiForkError(

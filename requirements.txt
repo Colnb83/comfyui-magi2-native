@@ -1,0 +1,7 @@
+# Beyond what ComfyUI itself installs
+triton>=3.5
+transformers>=5.5
+einops
+pydantic>=2
+pydantic-settings
+scipy

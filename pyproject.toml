@@ -1,0 +1,11 @@
+[project]
+name = "comfyui-magi2-native"
+description = "MAGI-2-preview (114B audio-video model) natively in ComfyUI on one 96 GB GPU: a ComfyUI model type for the stock loader and samplers, plus a one-node pipeline."
+version = "0.1.0"
+license = { file = "LICENSE" }
+dependencies = ["triton>=3.5", "transformers>=5.5", "einops", "pydantic>=2", "pydantic-settings", "scipy"]
+
+[tool.comfy]
+PublisherId = ""
+DisplayName = "MAGI-2 (native)"
+Icon = ""
