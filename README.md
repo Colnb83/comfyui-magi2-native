@@ -1,11 +1,75 @@
 # comfyui-magi2-native
 
 MAGI-2-preview inside ComfyUI's own process, on one 96 GB GPU. No Docker, no HTTP
-service. The nodes import the MAGI-2 fork's `inference` package and run its pipeline:
-text encoder, preview denoiser (NVFP4 experts, Triton MoE kernel), optional 1080p
-refiner, VAE and audio decode.
+service. Two ways to use it, from the same pack:
+
+1. **As a ComfyUI model (recommended).** The pack teaches ComfyUI the MAGI-2 model type, so
+   the stock **Load Diffusion Model** node loads it as a normal `MODEL`: ComfyUI's model
+   management loads and unloads it, stock guiders, samplers and the stock Wan2.2 VAE work
+   on it. See "Model workflow" below.
+2. **As one pipeline node** ("MAGI-2 Generate (native)"): the fork's whole pipeline behind
+   a single node. Simpler graph, and the only way to do image-to-video today.
 
 For two GPUs (about twice as fast) use the service-based pack, `comfyui-magi2-api`.
+
+## Model workflow
+
+Files (list them with `--extra-model-paths-config` or put them under `models/`):
+
+| File | Folder | Size | Made by |
+|---|---|---|---|
+| `magi2_preview_nvfp4_comfy.safetensors` | `diffusion_models` | 66.9 GiB | fork `scripts/convert_comfy_checkpoint.py` from the NVFP4 checkpoint |
+| `magi2_refiner.safetensors` (1080p only) | `diffusion_models` | 12.6 GiB | fork `scripts/merge_safetensors.py` from the release's `refiner/` shards |
+| `Wan2.2_VAE.pth` | `vae` | 2.8 GB | the release, unchanged |
+
+The text encoder (`text_encoder/`, 52 GB) and the audio VAE (`stable-audio-open-1.0/`) are read
+from the release's own directories by the MAGI-2 nodes: set `MAGI2_CKPT_ROOT` to the directory
+holding them, or fill in the nodes' `ckpt_root`.
+
+540p graph (`workflows/magi2_model_api.json`):
+
+```
+Load Diffusion Model (magi2_preview_nvfp4_comfy) ─┐
+MAGI-2 Text Encode (prompt) ──────────────────────┤
+MAGI-2 Text Encode (default negative prompt) ─────┼─> MAGI-2 Guider (video 5, audio 7) ─┐
+Empty MAGI-2 Latent (896x512) ───────────────────────────────────────────────────────────┤
+MAGI-2 Sigmas (100 steps, shift 7) ──────────────────────────────────────────────────────┼─> SamplerCustomAdvanced
+MAGI-2 Sampler (UniPC) ──────────────────────────────────────────────────────────────────┤
+RandomNoise ─────────────────────────────────────────────────────────────────────────────┘
+   latent ─> VAE Decode (Load VAE: Wan2.2_VAE.pth) ─> Create Video (fps from Empty MAGI-2 Latent) ─> Save Video
+   latent ─> MAGI-2 Audio Decode ───────────────────────┘
+```
+
+1080p (`workflows/magi2_model_1080p_api.json`) adds: a second Load Diffusion Model
+(`magi2_refiner`), **MAGI-2 Refiner Latent** (1920x1088) on the sampled latent, stock
+**CFGGuider** (cfg 2.0), **MAGI-2 Sigmas** (5 steps), **DisableNoise**, and a second
+SamplerCustomAdvanced; VAE Decode takes the refined latent, audio still comes from the first.
+
+Notes:
+
+- Stock samplers work too (tested: `euler` through KSamplerSelect). The MAGI-2 sampler and
+  sigma nodes reproduce MAGI-2's own UniPC solver and schedule exactly.
+- The stock **LTXVDualCFGGuider** can replace MAGI-2 Guider; MAGI-2 Guider adds `cfg_rescale`.
+- The latent is ComfyUI's joint audio-video latent, in raw VAE space like every other model.
+- Both MAGI-2 models must be entirely on the GPU to run. They load and unload as a whole;
+  unloading does not copy the weights into RAM (they are re-read from the file).
+- Not in the model path yet: image-to-video, and ComfyUI's own text-encoder loader (the text
+  encoder runs through the MAGI-2 node on the CPU, as in MAGI-2's pipeline). LoRA nodes have
+  no key map for this model.
+
+Measured (isolated ComfyUI, `/prompt`, real weights, fox prompt, GPU 1 beside a desktop):
+
+| Run | Time | Peak on the card |
+|---|---|---|
+| 540p, 100 steps | 32 min 47 s | 90.2 GiB |
+| 1080p, 3 preview + 5 refiner steps | 18 min 31 s | 87.9 GiB |
+| the same twice in one process (preview reloaded after the refiner displaced it) | 17 min 39 s, then 16 min 41 s | 90.8 GiB |
+| 272p, 8 steps, stock euler; second prompt in the same process | 58 s; 36 s | 80.6 GiB |
+
+The denoiser gives the same velocity as MAGI-2's pipeline on identical inputs, to within the
+pipeline's own run-to-run difference (8.4e-3 against 8.2e-3 relative, video).
+
+# The pipeline nodes
 
 ## What you need
 
@@ -22,7 +86,7 @@ For two GPUs (about twice as fast) use the service-based pack, `comfyui-magi2-ap
   `unfoldNd`, `diffusers`, `flash_attn` and MagiCompiler are **not** needed; the fork
   carries fallbacks for them.
 
-## Nodes (category MAGI-2)
+## Pipeline nodes (category MAGI-2)
 
 - **MAGI-2 Load (native, 1 GPU)**: `ckpt_root`, `nvfp4_ckpt` (empty = the
   `MAGI2_CKPT_ROOT` / `MAGI2_NVFP4_CKPT` environment variables), `mode` (`540p`, or `1080p`
