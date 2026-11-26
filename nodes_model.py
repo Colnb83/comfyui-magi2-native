@@ -74,6 +74,50 @@ class EmptyMAGI2Latent:
         return ({"samples": comfy.nested_tensor.NestedTensor((video, audio))}, VIDEO_FPS)
 
 
+class MAGI2RefinerLatent:
+    @classmethod
+    def INPUT_TYPES(cls):
+        return {
+            "required": {
+                "samples": ("LATENT", {"tooltip": "The sampled 540p MAGI-2 latent (joint, or its video stream)"}),
+                "width": ("INT", {"default": 1920, "min": 256, "max": 4096, "step": 16}),
+                "height": ("INT", {"default": 1088, "min": 256, "max": 4096, "step": 16}),
+                "seed": ("INT", {"default": 42, "min": 0, "max": 0xFFFFFFFFFFFFFFFF}),
+                "noise_level": ("INT", {"default": 220, "min": 0, "max": 999, "tooltip": "MAGI-2's refiner noise index (220 in the released configuration); 0 = no noise"}),
+            }
+        }
+
+    RETURN_TYPES = ("LATENT", "FLOAT")
+    RETURN_NAMES = ("latent", "fps")
+    FUNCTION = "prepare"
+    CATEGORY = "MAGI-2/model"
+    DESCRIPTION = ("Start latent for the MAGI-2 refiner: the 540p video latent upscaled to the target size with "
+                   "twice the frames, mixed with noise by MAGI-2's own rule. Sample it with the refiner model, "
+                   "noise disabled.")
+
+    def prepare(self, samples, width, height, seed, noise_level):
+        import comfy.latent_formats
+
+        latent = samples["samples"]
+        if getattr(latent, "is_nested", False):
+            latent = latent.unbind()[0]
+        if latent.ndim != 5 or latent.shape[1] != 48:
+            raise MagiModelNodeError(f"expected a video latent [B, 48, T, H, W], got {tuple(latent.shape)}")
+        wan = comfy.latent_formats.Wan22()
+        video = wan.process_in(latent.float())  # the model's normalised space, where the pipeline does this
+        video = torch.nn.functional.interpolate(
+            video, size=(video.shape[2] * 2 - 1, height // 16, width // 16), mode="trilinear", align_corners=True
+        )
+        if noise_level != 0:
+            prepare_fork_import()
+            from inference.pipeline.inference_engine import ZeroSNRDDPMDiscretization
+
+            sigma = ZeroSNRDDPMDiscretization()(1000, do_append_zero=False, flip=True)[noise_level].to(video)
+            noise = torch.randn(video.shape, generator=torch.Generator(device="cpu").manual_seed(seed), dtype=torch.float32).to(video)
+            video = video * sigma + noise * (1 - sigma**2) ** 0.5
+        return ({"samples": wan.process_out(video)}, VIDEO_FPS * 2)
+
+
 # -----------------------------------------------------------------------------
 # Text conditioning (MAGI-2's own encoder wrapper; runs on the CPU like the pipeline)
 # -----------------------------------------------------------------------------
@@ -258,6 +302,7 @@ class MAGI2AudioDecode:
 
 NODE_CLASS_MAPPINGS = {
     "EmptyMAGI2Latent": EmptyMAGI2Latent,
+    "MAGI2RefinerLatent": MAGI2RefinerLatent,
     "MAGI2TextEncode": MAGI2TextEncode,
     "MAGI2UnloadTextEncoder": MAGI2UnloadTextEncoder,
     "MAGI2Sigmas": MAGI2Sigmas,
@@ -267,6 +312,7 @@ NODE_CLASS_MAPPINGS = {
 
 NODE_DISPLAY_NAME_MAPPINGS = {
     "EmptyMAGI2Latent": "Empty MAGI-2 Latent (video+audio)",
+    "MAGI2RefinerLatent": "MAGI-2 Refiner Latent",
     "MAGI2TextEncode": "MAGI-2 Text Encode",
     "MAGI2UnloadTextEncoder": "MAGI-2 Unload Text Encoder",
     "MAGI2Sigmas": "MAGI-2 Sigmas",
