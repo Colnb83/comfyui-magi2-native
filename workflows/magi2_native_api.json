@@ -1,0 +1,43 @@
+{
+  "prompt": {
+    "1": {
+      "class_type": "MAGI2NativeLoader",
+      "inputs": {
+        "ckpt_root": "",
+        "nvfp4_ckpt": "",
+        "mode": "540p"
+      }
+    },
+    "2": {
+      "class_type": "MAGI2NativeGenerate",
+      "inputs": {
+        "pipeline": ["1", 0],
+        "prompt": "A cinematic shot of a small robot crossing a windswept ridge at sunrise, with a soft ambient soundtrack.",
+        "seed": 42,
+        "steps": 100,
+        "resolution": "540p",
+        "video_guidance": -1.0,
+        "audio_guidance": -1.0,
+        "keep_loaded": true
+      }
+    },
+    "3": {
+      "class_type": "CreateVideo",
+      "inputs": {
+        "images": ["2", 0],
+        "fps": ["2", 2],
+        "audio": ["2", 1],
+        "codec": "none"
+      }
+    },
+    "4": {
+      "class_type": "SaveVideo",
+      "inputs": {
+        "video": ["3", 0],
+        "filename_prefix": "MAGI-2/native",
+        "format": "mp4",
+        "format.codec": "auto"
+      }
+    }
+  }
+}
