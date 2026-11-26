@@ -28,6 +28,12 @@ __all__ = ["Wan2_2_VAE"]
 CACHE_T = 2
 
 
+# MAGI2_VAE_NO_COMPILE=1: run the VAE eagerly. torch.compile on these methods fails
+# at guard creation on newer PyTorch / Python (seen with torch 2.12.1, Python 3.14).
+# Unset: torch.compile as before.
+_compile = (lambda fn: fn) if os.environ.get("MAGI2_VAE_NO_COMPILE", "0") == "1" else torch.compile
+
+
 class CausalConv3d(nn.Conv3d):
     """
     Causal 3D convolution.
@@ -45,7 +51,7 @@ class CausalConv3d(nn.Conv3d):
         )
         self.padding = (0, 0, 0)
 
-    @torch.compile
+    @_compile
     def forward(self, x, cache_x=None):
         padding = list(self._padding)
         if cache_x is not None and self._padding[4] > 0:
@@ -68,14 +74,14 @@ class RMSNorm(nn.Module):
         self.gamma = nn.Parameter(torch.ones(shape))
         self.bias = nn.Parameter(torch.zeros(shape)) if bias else 0.0
 
-    @torch.compile
+    @_compile
     def forward(self, x):
         dim = 1 if self.channel_first else -1
         return F.normalize(x, dim=dim) * self.scale * self.gamma + self.bias
 
 
 class Upsample(nn.Upsample):
-    @torch.compile
+    @_compile
     def forward(self, x):
         """
         Fix bfloat16 support for nearest neighbor interpolation.
@@ -123,7 +129,7 @@ class Resample(nn.Module):
         else:
             self.resample = nn.Identity()
 
-    @torch.compile
+    @_compile
     def forward(
         self,
         x,
@@ -236,7 +242,7 @@ class ResidualBlock(nn.Module):
         )
 
     # @torch.compile(dynamic=False)
-    @torch.compile
+    @_compile
     def forward(
         self,
         x,
@@ -285,7 +291,7 @@ class AttentionBlock(nn.Module):
         # zero out the last layer params
         nn.init.zeros_(self.proj.weight)
 
-    @torch.compile
+    @_compile
     def forward(self, x):
         identity = x
         b, c, t, h, w = x.size()
@@ -351,7 +357,7 @@ class AvgDown3D(nn.Module):
         assert in_channels * self.factor % out_channels == 0
         self.group_size = in_channels * self.factor // out_channels
 
-    @torch.compile
+    @_compile
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         pad_t = (self.factor_t - x.shape[2] % self.factor_t) % self.factor_t
         pad = (0, 0, 0, 0, pad_t, 0)
@@ -400,7 +406,7 @@ class DupUp3D(nn.Module):
         assert out_channels * self.factor % in_channels == 0
         self.repeats = out_channels * self.factor // in_channels
 
-    @torch.compile
+    @_compile
     def forward(self, x: torch.Tensor, first_chunk=False) -> torch.Tensor:
         x = x.repeat_interleave(self.repeats, dim=1)
         x = x.view(
@@ -453,7 +459,7 @@ class DownResidualBlock(nn.Module):
 
         self.downsamples = nn.Sequential(*downsamples)
 
-    @torch.compile
+    @_compile
     def forward(self, x, feat_cache=None, feat_idx=[0]):
         x_copy = x.clone()
         for module in self.downsamples:
@@ -491,7 +497,7 @@ class UpResidualBlock(nn.Module):
 
         self.upsamples = nn.Sequential(*upsamples)
 
-    @torch.compile
+    @_compile
     def forward(
         self,
         x,
@@ -568,7 +574,7 @@ class Encoder3d(nn.Module):
             CausalConv3d(out_dim, z_dim, 3, padding=1),
         )
 
-    @torch.compile
+    @_compile
     def forward(self, x, feat_cache=None, feat_idx=[0]):
         if feat_cache is not None:
             idx = feat_idx[0]

@@ -8,7 +8,7 @@ service. Two ways to use it, from the same pack:
    management loads and unloads it, stock guiders, samplers and the stock Wan2.2 VAE work
    on it. See "Model workflow" below.
 2. **As one pipeline node** ("MAGI-2 Generate (native)"): the fork's whole pipeline behind
-   a single node. Simpler graph, and the only way to do image-to-video today.
+   a single node. Simpler graph.
 
 For two GPUs (about twice as fast) use the service-based pack, `comfyui-magi2-api`.
 
@@ -53,9 +53,13 @@ Notes:
 - The latent is ComfyUI's joint audio-video latent, in raw VAE space like every other model.
 - Both MAGI-2 models must be entirely on the GPU to run. They load and unload as a whole;
   unloading does not copy the weights into RAM (they are re-read from the file).
-- Not in the model path yet: image-to-video, and ComfyUI's own text-encoder loader (the text
-  encoder runs through the MAGI-2 node on the CPU, as in MAGI-2's pipeline). LoRA nodes have
-  no key map for this model.
+- **Image-to-video** (`workflows/magi2_model_i2v_api.json`): connect an image and the Wan2.2
+  VAE to the prompt's MAGI-2 Text Encode node and use MAGI-2 Guider (it shows the image to
+  the negative branch too, as MAGI-2 does). The image conditions the clip as a reference
+  the prompt points at; it is letterboxed, not cropped.
+- Not in the model path: ComfyUI's own text-encoder loader (the text encoder runs through
+  the MAGI-2 node on the CPU, as in MAGI-2's pipeline). LoRA nodes have no key map for this
+  model.
 
 Measured (isolated ComfyUI, `/prompt`, real weights, fox prompt, GPU 1 beside a desktop):
 
@@ -67,7 +71,11 @@ Measured (isolated ComfyUI, `/prompt`, real weights, fox prompt, GPU 1 beside a 
 | 272p, 8 steps, stock euler; second prompt in the same process | 58 s; 36 s | 80.6 GiB |
 
 The denoiser gives the same velocity as MAGI-2's pipeline on identical inputs, to within the
-pipeline's own run-to-run difference (8.4e-3 against 8.2e-3 relative, video).
+pipeline's own run-to-run difference (8.4e-3 against 8.2e-3 relative, video). The refiner is
+bit-identical. Image-to-video: text features and the image's prompt embedding are bit-equal to
+the pipeline's, the image latent differs by 6.3e-3 (ComfyUI's VAE against MAGI-2's copy), and
+the denoiser output agrees to run-to-run noise (9.3e-3 against 8.6e-3); without the image the
+output changes by 38%.
 
 # The pipeline nodes
 

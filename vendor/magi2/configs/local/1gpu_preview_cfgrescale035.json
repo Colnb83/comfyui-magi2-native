@@ -1,0 +1,4 @@
+{
+  "extends": "1gpu_preview.json",
+  "evaluation_config": { "cfg_rescale": 0.35 }
+}

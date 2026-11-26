@@ -148,23 +148,65 @@ class MAGI2TextEncode:
                 "text": ("STRING", {"multiline": True, "default": "", "tooltip": "Plain text or MAGI-2's structured-caption JSON"}),
                 "kind": (["prompt", "default negative prompt"], {"tooltip": "'default negative prompt' ignores the text and encodes MAGI-2's built-in negative prompt"}),
                 "ckpt_root": ("STRING", {"default": "", "tooltip": "Directory holding text_encoder/ (or that directory itself). Empty = $MAGI2_CKPT_ROOT"}),
-            }
+            },
+            "optional": {
+                "image": ("IMAGE", {"tooltip": "Image-to-video: the image the clip starts from. Needs vae."}),
+                "vae": ("VAE", {"tooltip": "The Wan2.2 VAE, to encode the image"}),
+                "width": ("INT", {"default": 896, "min": 256, "max": 4096, "step": 16, "tooltip": "Clip size, used to scale the image"}),
+                "height": ("INT", {"default": 512, "min": 256, "max": 4096, "step": 16}),
+            },
         }
 
     RETURN_TYPES = ("CONDITIONING",)
     FUNCTION = "encode"
     CATEGORY = "MAGI-2/model"
 
-    def encode(self, text, kind, ckpt_root):
+    @staticmethod
+    def _image_latent(image, vae, width, height):
+        """MAGI-2's image preparation: long edge scaled to the clip's long edge, sides
+        floored to a multiple of 32, then the VAE latent in the model's normalised space."""
+        import comfy.latent_formats
+        from PIL import Image
+
+        from inference.pipeline.inference_engine import resizepad
+
+        pixels = image[0, ..., :3].detach().clamp(0, 1).mul(255).round().to(device="cpu", dtype=torch.uint8).numpy()
+        pil = Image.fromarray(pixels, mode="RGB")
+        long_edge = max(height, width)
+        if pil.width > pil.height:
+            target_w, target_h = long_edge, int(pil.height * long_edge / pil.width)
+        else:
+            target_h, target_w = long_edge, int(pil.width * long_edge / pil.height)
+        pil = resizepad(pil, target_h, target_w)
+        target_w, target_h = target_w - target_w % 32, target_h - target_h % 32
+        pil = pil.resize((target_w, target_h), resample=Image.LANCZOS)
+        frame = torch.from_numpy(np.array(pil).astype(np.float32) / 255.0).unsqueeze(0)  # [1, H, W, 3]
+        raw = vae.encode(frame).float()  # [1, 48, 1, h, w], raw VAE space
+        feat = comfy.latent_formats.Wan22().process_in(raw).cpu()
+        feat_len = torch.tensor([[[feat.shape[3], feat.shape[4]]]], dtype=torch.long)
+        return feat.unsqueeze(1), feat_len  # [1, 1, 48, 1, h, w]
+
+    def encode(self, text, kind, ckpt_root, image=None, vae=None, width=896, height=512):
         encoder = _text_encoder(_ckpt_dir(ckpt_root, "text_encoder"))
         if kind == "default negative prompt":
             from inference.pipeline.inference_engine import NEGATIVE_PROMPT
 
-            text = NEGATIVE_PROMPT
-        elif not text.strip():
+            return ([[encoder.encode(NEGATIVE_PROMPT).float().cpu(), {}]],)
+        if not text.strip():
             raise MagiModelNodeError("text is empty")
+        if image is None:
+            return ([[encoder.encode(text).float().cpu(), {}]],)
+        if vae is None:
+            raise MagiModelNodeError("image-to-video needs the Wan2.2 VAE connected to 'vae'")
+        from inference.pipeline.inference_engine import Magi2InferenceEngine
+
+        # The prompt must mention the image; its embedding over that mention labels the image tokens.
+        text = Magi2InferenceEngine._ensure_figure_tokens(text, [1])
         embedding = encoder.encode(text)
-        return ([[embedding.float().cpu(), {}]],)
+        special = encoder.get_special_token(text, ["<Figure 1>"], embedding)  # [1, 5120]
+        feat, feat_len = self._image_latent(image, vae, width, height)
+        ref = {"feat": feat, "feat_len": feat_len, "special": special.float().cpu().unsqueeze(0)}
+        return ([[embedding.float().cpu(), {"magi2_ref_image": ref}]],)
 
 
 class MAGI2UnloadTextEncoder:
@@ -330,6 +372,11 @@ class MAGI2Guider:
     CATEGORY = "MAGI-2/model"
 
     def get_guider(self, model, positive, negative, video_cfg, audio_cfg, cfg_rescale):
+        # Image-to-video: MAGI-2 shows the image to the unconditional branch too, so
+        # guidance steers the text alone.
+        ref = next((c[1]["magi2_ref_image"] for c in positive if "magi2_ref_image" in c[1]), None)
+        if ref is not None:
+            negative = [[c[0], {**c[1], "magi2_ref_image": c[1].get("magi2_ref_image", ref)}] for c in negative]
         guider = Guider_MAGI2(model)
         guider.set_conds(positive, negative)
         guider.set_scales(video_cfg, audio_cfg, cfg_rescale)

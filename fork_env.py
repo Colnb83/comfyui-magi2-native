@@ -26,6 +26,9 @@ ENV_DEFAULTS = {
     # next clip) and use the memory-bounded refiner forward.
     "MAGI2_PREVIEW_RELEASE_EXPERTS": "1",
     "MAGI2_REFINER_LOWMEM": "1",
+    # The fork's own Wan2.2 VAE (image encode, full decoder) eagerly: its torch.compile
+    # decorators fail on ComfyUI's PyTorch.
+    "MAGI2_VAE_NO_COMPILE": "1",
 }
 
 

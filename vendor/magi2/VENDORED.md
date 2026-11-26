@@ -1,7 +1,7 @@
 # Vendored MAGI-2 inference code
 
 `inference/` and `configs/` are copied from a fork of SandAI's MAGI-2-preview inference
-repository (Apache-2.0, see LICENSE), branch `integration`, commit `fd23b09`.
+repository (Apache-2.0, see LICENSE), branch `integration`, commit `b7ae46c`.
 
 Changes against upstream, all opt-in through environment variables: NVFP4 expert storage,
 single-process operation (no torch.distributed), running without MagiCompiler / flash_attn /

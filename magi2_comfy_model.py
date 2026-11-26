@@ -136,7 +136,7 @@ def _denoiser_class():
             # MAGI-2's own pipeline gives the model the integer timestep (trunc(sigma*1000)).
             self.integer_timesteps = os.environ.get("MAGI2_COMFY_EXACT_TIMESTEP", "0") != "1"
 
-        def _single_input(self, video, audio, context, t_norm):
+        def _single_input(self, video, audio, context, t_norm, ref=None):
             _, _, frames, height, width = video.shape
             length = audio.shape[1]
             device = video.device
@@ -153,12 +153,14 @@ def _denoiser_class():
                 ref_audio_feat_len=torch.tensor([0], device=device),
                 ref_video_feat=torch.zeros_like(video),
                 ref_video_feat_len=torch.tensor([0], device=device),
-                ref_image_feat=None,
-                ref_image_feat_len=None,
-                ref_image_special_token_embedding=None,
+                # Conditioning image(s): clean VAE latents packed as extra tokens, each
+                # prefixed by the text embedding pooled over its <Figure N> mention.
+                ref_image_feat=None if ref is None else ref["feat"].to(device=device, dtype=torch.float32),
+                ref_image_feat_len=None if ref is None else ref["feat_len"].to(device=device),
+                ref_image_special_token_embedding=None if ref is None else ref["special"].to(device=device, dtype=torch.bfloat16),
             )
 
-        def forward(self, x, timestep, context=None, transformer_options={}, **kwargs):
+        def forward(self, x, timestep, context=None, transformer_options={}, magi2_ref=None, **kwargs):
             if not isinstance(x, (list, tuple)) or len(x) != 2:
                 raise RuntimeError(
                     "MAGI-2 needs a joint video+audio latent (use the Empty MAGI-2 Latent node); "
@@ -186,6 +188,7 @@ def _denoiser_class():
                         audio[i : i + 1].float().transpose(1, 2),  # ComfyUI [B, 64, L] -> MAGI-2 [B, L, 64]
                         context[i : i + 1].to(torch.bfloat16),
                         (t / 1000.0).reshape(1),
+                        ref=magi2_ref,
                     )
                     packed = self.data_proxy.process_input(model_input)
                     output = Transformer.forward(self, *packed)
@@ -356,6 +359,9 @@ class MAGI2Preview(comfy.model_base.BaseModel):
         latent_shapes = kwargs.get("latent_shapes", None)
         if latent_shapes is not None and len(latent_shapes) > 1:
             out["latent_shapes"] = comfy.conds.CONDConstant(latent_shapes)
+        ref = kwargs.get("magi2_ref_image", None)
+        if ref is not None:
+            out["magi2_ref"] = comfy.conds.CONDConstant(ref)  # a dict: left alone by the dtype cast
         return out
 
     def memory_required(self, input_shape, cond_shapes={}):
