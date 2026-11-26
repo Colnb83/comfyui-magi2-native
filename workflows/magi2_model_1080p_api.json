@@ -32,7 +32,7 @@
       }
     },
     "5": {
-      "class_type": "LTXVDualCFGGuider",
+      "class_type": "MAGI2Guider",
       "inputs": {
         "model": [
           "1",
@@ -47,7 +47,8 @@
           0
         ],
         "video_cfg": 5.0,
-        "audio_cfg": 7.0
+        "audio_cfg": 7.0,
+        "cfg_rescale": 0.0
       }
     },
     "6": {

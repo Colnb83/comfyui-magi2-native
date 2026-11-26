@@ -8,6 +8,7 @@ decoding with MAGI-2's resampling step.
 """
 
 import logging
+import math
 import os
 import time
 
@@ -256,6 +257,86 @@ class MAGI2SamplerUniPC:
 
 
 # -----------------------------------------------------------------------------
+# Guider: separate video and audio guidance, with MAGI-2's optional CFG rescale
+# -----------------------------------------------------------------------------
+
+
+class Guider_MAGI2(comfy.samplers.CFGGuider):
+    """Video and audio guidance scales as in MAGI-2's sampler, plus its ``cfg_rescale``:
+    the guided prediction of each stream is scaled so its standard deviation moves
+    towards that of the conditional prediction (0 = off, 1 = fully matched)."""
+
+    def set_scales(self, video_cfg, audio_cfg, cfg_rescale):
+        self.video_cfg, self.audio_cfg, self.cfg_rescale = video_cfg, audio_cfg, cfg_rescale
+        self.cfg = max(video_cfg, audio_cfg)
+
+    def sample(self, noise, latent_image, *args, **kwargs):
+        self._shapes = None
+        if getattr(latent_image, "is_nested", False):
+            self._shapes = [tuple(p.shape) for p in latent_image.unbind()]
+        return super().sample(noise, latent_image, *args, **kwargs)
+
+    @staticmethod
+    def _rescale(cond, guided, dims, amount):
+        cond_std = cond.float().std(dim=dims, keepdim=True, unbiased=False)
+        guided_std = guided.float().std(dim=dims, keepdim=True, unbiased=False).clamp_min(1e-6)
+        return guided * (amount * (cond_std / guided_std) + (1 - amount)).to(guided.dtype)
+
+    def predict_noise(self, x, timestep, model_options={}, seed=None):
+        shapes = getattr(self, "_shapes", None)
+        video_cfg, audio_cfg, amount = self.video_cfg, self.audio_cfg, self.cfg_rescale
+
+        def guide(args):
+            # cond / uncond are x - prediction (sigma * velocity): the same linear
+            # combination and the same std ratios as in velocity space.
+            cond, uncond = args["cond"], args["uncond"]
+            if shapes is None or len(shapes) < 2:  # single stream (e.g. the refiner)
+                out = uncond + (cond - uncond) * video_cfg
+                if amount > 0 and out.ndim >= 4:
+                    out = self._rescale(cond, out, tuple(range(2, out.ndim)), amount)
+                return out
+            batch = cond.shape[0]
+            v = math.prod(shapes[0][1:])
+            out = uncond + (cond - uncond) * video_cfg
+            out[..., v:] = uncond[..., v:] + (cond[..., v:] - uncond[..., v:]) * audio_cfg
+            if amount > 0:
+                vshape, ashape = (batch,) + shapes[0][1:], (batch,) + shapes[1][1:]
+                video = self._rescale(cond[..., :v].reshape(vshape), out[..., :v].reshape(vshape), (2, 3, 4), amount)
+                # audio is [B, 64, L] here; MAGI-2 takes the std over time per channel
+                audio = self._rescale(cond[..., v:].reshape(ashape), out[..., v:].reshape(ashape), (2,), amount)
+                out = torch.cat([video.reshape(batch, 1, -1), audio.reshape(batch, 1, -1)], dim=-1)
+            return out
+
+        model_options = {**model_options, "sampler_cfg_function": guide, "disable_cfg1_optimization": True}
+        return super().predict_noise(x, timestep, model_options, seed)
+
+
+class MAGI2Guider:
+    @classmethod
+    def INPUT_TYPES(cls):
+        return {
+            "required": {
+                "model": ("MODEL",),
+                "positive": ("CONDITIONING",),
+                "negative": ("CONDITIONING",),
+                "video_cfg": ("FLOAT", {"default": 5.0, "min": 0.0, "max": 100.0, "step": 0.1}),
+                "audio_cfg": ("FLOAT", {"default": 7.0, "min": 0.0, "max": 100.0, "step": 0.1}),
+                "cfg_rescale": ("FLOAT", {"default": 0.0, "min": 0.0, "max": 1.0, "step": 0.05, "tooltip": "0 = off (MAGI-2's default)"}),
+            }
+        }
+
+    RETURN_TYPES = ("GUIDER",)
+    FUNCTION = "get_guider"
+    CATEGORY = "MAGI-2/model"
+
+    def get_guider(self, model, positive, negative, video_cfg, audio_cfg, cfg_rescale):
+        guider = Guider_MAGI2(model)
+        guider.set_conds(positive, negative)
+        guider.set_scales(video_cfg, audio_cfg, cfg_rescale)
+        return (guider,)
+
+
+# -----------------------------------------------------------------------------
 # Audio decode: Stable Audio Open VAE + MAGI-2's 441/512 resample
 # -----------------------------------------------------------------------------
 
@@ -305,6 +386,7 @@ NODE_CLASS_MAPPINGS = {
     "MAGI2RefinerLatent": MAGI2RefinerLatent,
     "MAGI2TextEncode": MAGI2TextEncode,
     "MAGI2UnloadTextEncoder": MAGI2UnloadTextEncoder,
+    "MAGI2Guider": MAGI2Guider,
     "MAGI2Sigmas": MAGI2Sigmas,
     "MAGI2SamplerUniPC": MAGI2SamplerUniPC,
     "MAGI2AudioDecode": MAGI2AudioDecode,
@@ -315,6 +397,7 @@ NODE_DISPLAY_NAME_MAPPINGS = {
     "MAGI2RefinerLatent": "MAGI-2 Refiner Latent",
     "MAGI2TextEncode": "MAGI-2 Text Encode",
     "MAGI2UnloadTextEncoder": "MAGI-2 Unload Text Encoder",
+    "MAGI2Guider": "MAGI-2 Guider (video/audio CFG, rescale)",
     "MAGI2Sigmas": "MAGI-2 Sigmas",
     "MAGI2SamplerUniPC": "MAGI-2 Sampler (UniPC)",
     "MAGI2AudioDecode": "MAGI-2 Audio Decode",

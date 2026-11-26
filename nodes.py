@@ -140,7 +140,7 @@ def _audio_output(audio_np, sample_rate):
     return {"waveform": torch.from_numpy(np.ascontiguousarray(array)).unsqueeze(0), "sample_rate": int(sample_rate)}
 
 
-def generate(pipeline, prompt, seed, steps, resolution, refiner_steps, image, video_guidance, audio_guidance):
+def generate(pipeline, prompt, seed, steps, resolution, refiner_steps, image, video_guidance, audio_guidance, cfg_rescale=0.0):
     from inference.pipeline.entry import RESOLUTION_PRESETS
     from inference.prompt_enhancement import enhance_prompt
 
@@ -174,6 +174,7 @@ def generate(pipeline, prompt, seed, steps, resolution, refiner_steps, image, vi
 
     cfg = engine.cfg_config
     saved = (cfg.video_txt_guidance_scale, cfg.audio_txt_guidance_scale)
+    saved_rescale = cfg.cfg_rescale
     engine.progress_callback = on_progress
     pil_image = _to_pil(image)
     t0 = time.time()
@@ -182,6 +183,7 @@ def generate(pipeline, prompt, seed, steps, resolution, refiner_steps, image, vi
             cfg.video_txt_guidance_scale = float(video_guidance)
         if audio_guidance is not None and audio_guidance >= 0:
             cfg.audio_txt_guidance_scale = float(audio_guidance)
+        cfg.cfg_rescale = float(cfg_rescale or 0.0)
         with _image_numerics():
             torch.cuda.reset_peak_memory_stats()
             seed32 = int(seed) % (2**63)
@@ -205,6 +207,7 @@ def generate(pipeline, prompt, seed, steps, resolution, refiner_steps, image, vi
         sample_peak()
         engine.progress_callback = None
         cfg.video_txt_guidance_scale, cfg.audio_txt_guidance_scale = saved
+        cfg.cfg_rescale = saved_rescale
     if video_np is None:
         raise MagiNativeError("MAGI-2 pipeline returned no video")
     if video_np.dtype != np.uint8 or video_np.ndim != 4 or video_np.shape[3] != 3:
@@ -261,6 +264,7 @@ class MAGI2NativeGenerate:
                 "video_guidance": ("FLOAT", {"default": -1.0, "min": -1.0, "max": 100.0, "step": 0.1, "tooltip": "-1 = model default (5.0)"}),
                 "audio_guidance": ("FLOAT", {"default": -1.0, "min": -1.0, "max": 100.0, "step": 0.1, "tooltip": "-1 = model default (7.0)"}),
                 "refiner_steps": ("INT", {"default": 0, "min": 0, "max": 1000, "tooltip": "1080p only; 0 = config default"}),
+                "cfg_rescale": ("FLOAT", {"default": 0.0, "min": 0.0, "max": 1.0, "step": 0.05, "tooltip": "0 = off (MAGI-2's default)"}),
                 "keep_loaded": ("BOOLEAN", {"default": True, "tooltip": "Off: free the GPU after this clip"}),
             },
         }
@@ -271,11 +275,11 @@ class MAGI2NativeGenerate:
     CATEGORY = "MAGI-2"
 
     def generate(self, pipeline, prompt, seed, steps, resolution, image=None, video_guidance=None,
-                 audio_guidance=None, refiner_steps=0, keep_loaded=True):
+                 audio_guidance=None, refiner_steps=0, cfg_rescale=0.0, keep_loaded=True):
         if pipeline is not _STATE["pipeline"]:
             raise MagiNativeError("this MAGI-2 pipeline was unloaded; run the loader node again")
         try:
-            return generate(pipeline, prompt, seed, steps, resolution, refiner_steps, image, video_guidance, audio_guidance)
+            return generate(pipeline, prompt, seed, steps, resolution, refiner_steps, image, video_guidance, audio_guidance, cfg_rescale)
         finally:
             if keep_loaded:
                 _free_gpu()
