@@ -1,9 +1,8 @@
 # Training adapters (LoRA) for MAGI-2-preview on one 96 GB GPU
 
-**Experimental.** The pipeline runs end to end and the numbers below are measured, but
-nobody has yet shown what a good MAGI-2 LoRA needs: the step count, learning rate and data
-mix here are first guesses. The first long runs (6,000 steps) were still in progress when
-this was written, and no result has been judged.
+**Experimental.** The pipeline runs end to end and the numbers below are measured. One
+character LoRA has been trained with it so far (see "First result"); the step count,
+learning rate and data mix are first guesses, not tuned values.
 
 What it does: trains low-rank adapters on the non-expert weights (attention and MLP linears)
 and, optionally, native parameter groups such as the expert router, with the 114 B expert
@@ -84,6 +83,19 @@ Measured (rank 16 on all attention and MLP linears, 50.1 M trainable parameters)
 A 10 s clip at 896x512 does not fit. On a set of 21 clips (1 to 10 s) and 183 stills, a
 step averaged 5.5 s on clips and 3.2 s on stills, so 6,000 steps take about 9 hours.
 
+## First result
+
+One dataset: 21 clips with sound (1 to 10 s, 448x256) and 183 stills (896x512) of one
+character, plain-text captions with a trigger word. Schedule `video:2500,image:1000,video:2500`,
+rank 16 on attention + MLP, lr 1e-4, stopped at step 5,750 (about 9 hours on one card).
+
+- The dataset's owner judged the character learned, at step 3,000 and at step 5,750.
+- The same adapter rendered through ComfyUI's stock LoRA loader (converted, strength 1.0) and
+  un-merged through MAGI-2's pipeline: both judged working.
+- A second run that also trained the router (`--native router --native-lr 1e-5`, clips
+  limited to 5 s) gave blurry video. LoRA only is the recommended starting point.
+- Smoothed loss, start -> end: video 0.52 -> about 0.2, audio 0.98 -> about 0.5.
+
 ## 3. Use the adapter
 
 - **ComfyUI:** convert, then load with the stock **LoraLoaderModelOnly** node:
@@ -95,8 +107,7 @@ step averaged 5.5 s on clips and 3.2 s on stills, so 6,000 steps take about 9 ho
 
   `--base` is only needed when native groups were trained (they become full differences).
   ComfyUI merges the LoRA into bf16 weights, which rounds small deltas (see the main README).
-  The conversion is exact on the CPU; a trained adapter has not yet been compared end to end
-  between ComfyUI and the un-merged path below.
+  A trained adapter has been run both this way and un-merged (below); both worked.
 - **MAGI-2's own pipeline:** `MAGI2_ADAPTER=<adapter file>` attaches it un-merged.
 
 ## How it works, briefly
@@ -113,5 +124,5 @@ step averaged 5.5 s on clips and 3.2 s on stills, so 6,000 steps take about 9 ho
 
 - One GPU, batch size 1.
 - The expert weights themselves do not train.
-- Audio loss moves much less than video loss in the runs so far (about 0.98 -> 0.73 over
-  3,000 steps); whether voice is learned is not established.
+- Whether the voice is learned as well as the look has not been established.
+- Training the router made results worse in the one attempt so far.

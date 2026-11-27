@@ -85,8 +85,9 @@ diffusion_model.block.layers.5.attention.linear_qkv.alpha
   significant digits, so a small delta is applied noisily: in a test with random LoRAs, a
   delta of 3% of the weight's norm landed with 5.5% error, one of 30% with 0.6% error.
 - **Switching** a LoRA or its strength reloads the model's weights from disk.
-- There are no public MAGI-2 LoRAs yet. An experimental trainer is in `training/` (see
-  `training/README.md`): LoRA on video, stills and audio on one 96 GB GPU.
+- An experimental trainer is in `training/` (see `training/README.md`): LoRA on video,
+  stills and audio on one 96 GB GPU. A character LoRA trained with it works through the
+  stock loader (540p, 50 steps, 17 min 13 s, 88.1 GiB peak).
   `tools/adapter_to_comfy_lora.py` converts its adapters into this format.
 
 Tested with a synthetic LoRA on four layers: the applied weight change matches the LoRA at
