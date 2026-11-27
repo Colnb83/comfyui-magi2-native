@@ -12,9 +12,23 @@ service. Two ways to use it, from the same pack:
 
 For two GPUs (about twice as fast) use the service-based pack, `comfyui-magi2-api`.
 
+## Download the models
+
+Ready-made files: **https://huggingface.co/colinb83/MAGI-2-preview-NVFP4** (folder `comfyui/`,
+laid out like ComfyUI's `models/`):
+
+```
+hf download colinb83/MAGI-2-preview-NVFP4 --include "comfyui/*" --local-dir magi2-dl
+# then move magi2-dl/comfyui/diffusion_models/* and magi2-dl/comfyui/vae/* into ComfyUI's models/
+hf download sand-ai/MAGI-2-preview --include "text_encoder/*" "stable-audio-open-1.0/*" --local-dir <ComfyUI>/models/magi2
+```
+
+Install the pack by cloning this repository into `custom_nodes/`, then open a workflow from
+`workflows/`.
+
 ## Model workflow
 
-Files (list them with `--extra-model-paths-config` or put them under `models/`):
+Files (from the Hugging Face repository above; put them under `models/`):
 
 | File | Folder | Size | Made by |
 |---|---|---|---|
@@ -28,8 +42,7 @@ them) in `models/magi2/` and nothing else is needed; otherwise set `MAGI2_CKPT_R
 directory holding them, or fill in the nodes' `ckpt_root`.
 
 Each workflow comes in two forms: `<name>.json` opens in the ComfyUI editor (generated from the
-tested API file by `tools/make_ui_workflow.py`; node layout is automatic and it has not been
-opened in a browser yet), and `<name>_api.json` is the API format the tests submit.
+tested API file by `tools/make_ui_workflow.py`; node layout is automatic), and `<name>_api.json` is the API format the tests submit.
 
 540p graph (`workflows/magi2_model.json`, `magi2_model_api.json`):
 
