@@ -26,6 +26,24 @@ hf download sand-ai/MAGI-2-preview --include "text_encoder/*" "stable-audio-open
 Install the pack by cloning this repository into `custom_nodes/`, then open a workflow from
 `workflows/`.
 
+## System RAM and the low-RAM option
+
+| `text_encoder_device` on **MAGI-2 Text Encode** | System RAM needed | Behaviour |
+|---|---|---|
+| `cpu` (default) | about 64 GB | the 52 GB text encoder stays in RAM; changing the prompt is quick |
+| `gpu (low RAM)` | about 10 GB | the text encoder runs on the GPU and is freed before the MAGI-2 model loads |
+
+To use the low-RAM option, set `text_encoder_device` to `gpu (low RAM)` on **both** MAGI-2
+Text Encode nodes (prompt and negative prompt). Nothing else changes; GPU peak is the same.
+
+- Measured (272p, 8 steps): a whole generation completed with the ComfyUI process limited
+  to 24, 12 and 8 GB of RAM; peak use 7.8 GB under the 8 GB limit.
+- The model files were already in the disk cache in those runs. A machine with little RAM
+  reads 52 GB (text encoder) and 67 GB (model) from disk on every load, so loading is slower.
+- The two do not fit on a 96 GB card together: in this mode a changed prompt unloads the
+  MAGI-2 model, encodes, and loads it again. The `cpu` mode avoids that.
+- **MAGI-2 Unload Text Encoder** frees the encoder in either mode.
+
 ## Model workflow
 
 Files (from the Hugging Face repository above; put them under `models/`):
@@ -75,13 +93,6 @@ Notes:
   VAE to the prompt's MAGI-2 Text Encode node and use MAGI-2 Guider (it shows the image to
   the negative branch too, as MAGI-2 does). The image conditions the clip as a reference
   the prompt points at; it is letterboxed, not cropped.
-- **System RAM.** The process itself needs about 10 GB. On top of that, the text encoder
-  (52 GB) runs on the CPU by default and has to fit in RAM to be fast, so plan for about
-  64 GB. With less, set `text_encoder_device` to **gpu (low RAM)** on both MAGI-2 Text Encode
-  nodes: the encoder then runs on the GPU and is freed before the MAGI-2 model loads. A whole
-  generation completed with the process limited to 8 GB of RAM (peak 7.8 GB; the model files
-  were already in the disk cache, so a small machine will spend longer reading them). The
-  cost: a changed prompt unloads and reloads the MAGI-2 model, which the CPU mode avoids.
 - Not in the model path: ComfyUI's own text-encoder loader (the text encoder runs through
   the MAGI-2 node on the CPU, as in MAGI-2's pipeline).
 
@@ -139,7 +150,8 @@ output changes by 38%.
 
 - One GPU with 96 GB (tested: RTX PRO 6000 Blackwell). Peak use is about 82 GiB
   allocated, 86 to 88 GiB reserved; a card that also drives a desktop (3.5 GiB) works.
-- About 64 GB of free host RAM (the 52 GB text encoder stays in RAM and runs on the CPU).
+- About 64 GB of free host RAM (the 52 GB text encoder stays in RAM and runs on the CPU). The low-RAM
+  option above applies to the model workflow, not to these pipeline nodes.
 - Weights: the pre-quantised NVFP4 checkpoint (67 GiB) and, from the original release,
   `text_encoder/` (52 GB), `vae/`, `turbo_vae/`, `stable-audio-open-1.0/` (9 GB together)
   and, for 1080p, `refiner/` (13 GB). The original 213 GB `preview/` directory is not
