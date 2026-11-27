@@ -1,7 +1,7 @@
 # Training adapters (LoRA) for MAGI-2-preview on one 96 GB GPU
 
 **Experimental.** The pipeline runs end to end and the numbers below are measured. One
-character LoRA has been trained with it so far (see "First result"); the step count,
+character LoRA, look and voice, has been trained with it so far (see "First result"); the step count,
 learning rate and data mix are first guesses, not tuned values.
 
 What it does: trains low-rank adapters on the non-expert weights (attention and MLP linears)
@@ -89,7 +89,8 @@ One dataset: 21 clips with sound (1 to 10 s, 448x256) and 183 stills (896x512) o
 character, plain-text captions with a trigger word. Schedule `video:2500,image:1000,video:2500`,
 rank 16 on attention + MLP, lr 1e-4, stopped at step 5,750 (about 9 hours on one card).
 
-- The dataset's owner judged the character learned, at step 3,000 and at step 5,750.
+- The dataset's owner judged the character learned, at step 3,000 and at step 5,750, and
+  the character's voice learned as well as the look (from the 21 clips with sound).
 - The same adapter rendered through ComfyUI's stock LoRA loader (converted, strength 1.0) and
   un-merged through MAGI-2's pipeline: both judged working.
 - A second run that also trained the router (`--native router --native-lr 1e-5`, clips
@@ -124,5 +125,4 @@ rank 16 on attention + MLP, lr 1e-4, stopped at step 5,750 (about 9 hours on one
 
 - One GPU, batch size 1.
 - The expert weights themselves do not train.
-- Whether the voice is learned as well as the look has not been established.
 - Training the router made results worse in the one attempt so far.
