@@ -66,6 +66,8 @@ Notes:
 
 ### LoRA
 
+Workflow: `workflows/magi2_model_lora.json` (the 540p graph with a LoRA loader; pick your file in the node).
+
 The stock LoRA loader (**LoraLoaderModelOnly**) works on the MAGI-2 model. Keys follow
 ComfyUI's generic format, the weight's name without `.weight`:
 
