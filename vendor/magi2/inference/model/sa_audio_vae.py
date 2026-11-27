@@ -258,7 +258,7 @@ class AudioAutoencoder(nn.Module):
 # ---------------------------------------------------------------------------
 
 def _create_encoder(cfg: dict) -> nn.Module:
-    assert cfg.get("type") == "oobleck", f"Only oobleck encoder supported, got {cfg.get("type")}"
+    assert cfg.get("type") == "oobleck", f"Only oobleck encoder supported, got {cfg.get('type')}"
     enc = OobleckEncoder(**cfg["config"])
     if not cfg.get("requires_grad", True):
         for p in enc.parameters():
@@ -267,7 +267,7 @@ def _create_encoder(cfg: dict) -> nn.Module:
 
 
 def _create_decoder(cfg: dict) -> nn.Module:
-    assert cfg.get("type") == "oobleck", f"Only oobleck decoder supported, got {cfg.get("type")}"
+    assert cfg.get("type") == "oobleck", f"Only oobleck decoder supported, got {cfg.get('type')}"
     dec = OobleckDecoder(**cfg["config"])
     if not cfg.get("requires_grad", True):
         for p in dec.parameters():
@@ -276,7 +276,7 @@ def _create_decoder(cfg: dict) -> nn.Module:
 
 
 def _create_bottleneck(cfg: dict) -> nn.Module:
-    assert cfg.get("type") == "vae", f"Only vae bottleneck supported, got {cfg.get("type")}"
+    assert cfg.get("type") == "vae", f"Only vae bottleneck supported, got {cfg.get('type')}"
     bn = VAEBottleneck()
     if not cfg.get("requires_grad", True):
         for p in bn.parameters():
