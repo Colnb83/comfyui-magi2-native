@@ -75,6 +75,13 @@ Notes:
   VAE to the prompt's MAGI-2 Text Encode node and use MAGI-2 Guider (it shows the image to
   the negative branch too, as MAGI-2 does). The image conditions the clip as a reference
   the prompt points at; it is letterboxed, not cropped.
+- **System RAM.** The process itself needs about 10 GB. On top of that, the text encoder
+  (52 GB) runs on the CPU by default and has to fit in RAM to be fast, so plan for about
+  64 GB. With less, set `text_encoder_device` to **gpu (low RAM)** on both MAGI-2 Text Encode
+  nodes: the encoder then runs on the GPU and is freed before the MAGI-2 model loads. A whole
+  generation completed with the process limited to 8 GB of RAM (peak 7.8 GB; the model files
+  were already in the disk cache, so a small machine will spend longer reading them). The
+  cost: a changed prompt unloads and reloads the MAGI-2 model, which the CPU mode avoids.
 - Not in the model path: ComfyUI's own text-encoder loader (the text encoder runs through
   the MAGI-2 node on the CPU, as in MAGI-2's pipeline).
 

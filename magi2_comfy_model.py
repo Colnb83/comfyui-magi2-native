@@ -97,6 +97,9 @@ class MAGI2ModelPatcher(comfy.model_patcher.ModelPatcher):
         # The weights need most of the card in one go. Hand PyTorch's cached blocks
         # (left by a previous load or by sampling) back first, or the allocator can
         # fail to fit them although enough memory is free in total.
+        from .nodes_model import release_text_encoder
+
+        release_text_encoder(only_gpu=True)  # a text encoder on the GPU ("gpu (low RAM)") leaves first
         comfy.model_management.soft_empty_cache()
         if torch.cuda.is_available():
             torch.cuda.empty_cache()

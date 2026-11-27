@@ -134,17 +134,45 @@ class MAGI2RefinerLatent:
 _TEXT_ENCODER = {"path": None, "encoder": None}
 
 
-def _text_encoder(path):
-    if _TEXT_ENCODER["encoder"] is None or _TEXT_ENCODER["path"] != path:
+def release_text_encoder(only_gpu=False):
+    """Drop the text encoder. ``only_gpu``: only when it sits on the GPU (called before the
+    denoiser loads, which needs the card to itself)."""
+    if _TEXT_ENCODER["encoder"] is None or (only_gpu and _TEXT_ENCODER.get("device") == "cpu"):
+        return
+    on_gpu = _TEXT_ENCODER.get("device") != "cpu"
+    _TEXT_ENCODER["encoder"] = None
+    _TEXT_ENCODER["path"] = None
+    _TEXT_ENCODER["device"] = None
+    if on_gpu:
+        import gc
+
+        gc.collect()
+        comfy.model_management.soft_empty_cache()
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
+        logging.info("[MAGI-2] text encoder released from the GPU")
+
+
+def _text_encoder(path, device="cpu"):
+    """``device``: "cpu" keeps the 52 GB encoder in host RAM between prompts. "gpu" puts it on
+    the card instead (little host RAM needed): ComfyUI's models are unloaded first, and the
+    encoder is dropped again before the MAGI-2 model loads."""
+    want = "cpu" if device == "cpu" else str(comfy.model_management.get_torch_device())
+    if _TEXT_ENCODER["encoder"] is None or _TEXT_ENCODER["path"] != path or _TEXT_ENCODER.get("device") != want:
         prepare_fork_import()
         from inference.model.qwen35 import Qwen35TextEncoder
 
-        _TEXT_ENCODER["encoder"] = None
+        release_text_encoder()
+        if want != "cpu":
+            comfy.model_management.unload_all_models()
+            comfy.model_management.soft_empty_cache()
+            torch.cuda.empty_cache()
         t0 = time.time()
         # skip_layer=2: hidden_states[-3], what MAGI-2 was trained on.
-        _TEXT_ENCODER["encoder"] = Qwen35TextEncoder(model_path=path, device="cpu", precision=torch.bfloat16, skip_layer=2)
+        _TEXT_ENCODER["encoder"] = Qwen35TextEncoder(model_path=path, device=want, precision=torch.bfloat16, skip_layer=2)
         _TEXT_ENCODER["path"] = path
-        logging.info("[MAGI-2] text encoder loaded from %s in %.1f s (CPU)", path, time.time() - t0)
+        _TEXT_ENCODER["device"] = want
+        logging.info("[MAGI-2] text encoder loaded from %s in %.1f s (%s)", path, time.time() - t0, want)
     return _TEXT_ENCODER["encoder"]
 
 
@@ -162,6 +190,7 @@ class MAGI2TextEncode:
                 "vae": ("VAE", {"tooltip": "The Wan2.2 VAE, to encode the image"}),
                 "width": ("INT", {"default": 896, "min": 256, "max": 4096, "step": 16, "tooltip": "Clip size, used to scale the image"}),
                 "height": ("INT", {"default": 512, "min": 256, "max": 4096, "step": 16}),
+                "text_encoder_device": (["cpu", "gpu (low RAM)"], {"default": "cpu", "tooltip": "cpu: the 52 GB text encoder stays in host RAM (fast when the prompt changes). gpu (low RAM): it runs on the GPU instead and is freed before the MAGI-2 model loads; other models are unloaded first, so a changed prompt reloads the MAGI-2 model."}),
             },
         }
 
@@ -194,8 +223,8 @@ class MAGI2TextEncode:
         feat_len = torch.tensor([[[feat.shape[3], feat.shape[4]]]], dtype=torch.long)
         return feat.unsqueeze(1), feat_len  # [1, 1, 48, 1, h, w]
 
-    def encode(self, text, kind, ckpt_root, image=None, vae=None, width=896, height=512):
-        encoder = _text_encoder(_ckpt_dir(ckpt_root, "text_encoder"))
+    def encode(self, text, kind, ckpt_root, image=None, vae=None, width=896, height=512, text_encoder_device="cpu"):
+        encoder = _text_encoder(_ckpt_dir(ckpt_root, "text_encoder"), "cpu" if text_encoder_device == "cpu" else "gpu")
         if kind == "default negative prompt":
             from inference.pipeline.inference_engine import NEGATIVE_PROMPT
 
@@ -230,11 +259,10 @@ class MAGI2UnloadTextEncoder:
     FUNCTION = "unload"
     CATEGORY = "MAGI-2/model"
     OUTPUT_NODE = True
-    DESCRIPTION = "Frees the 52 GB text encoder from host RAM."
+    DESCRIPTION = "Frees the 52 GB text encoder (from host RAM, or from the GPU)."
 
     def unload(self, after=None):
-        _TEXT_ENCODER["encoder"] = None
-        _TEXT_ENCODER["path"] = None
+        release_text_encoder()
         return ()
 
 
