@@ -34,9 +34,17 @@ class MagiModelNodeError(RuntimeError):
 
 
 def _ckpt_dir(value, sub):
-    root = (value or "").strip() or os.environ.get("MAGI2_CKPT_ROOT", "")
-    if not root or not os.path.isdir(root):
-        raise MagiModelNodeError("ckpt_root is empty (or not a directory) and MAGI2_CKPT_ROOT is not set")
+    """Where text_encoder/ and stable-audio-open-1.0/ live: the node's ckpt_root, else
+    MAGI2_CKPT_ROOT, else <ComfyUI models>/magi2/ (no setup needed when they are put there)."""
+    import folder_paths
+
+    default = os.path.join(folder_paths.models_dir, "magi2")
+    candidates = [(value or "").strip(), os.environ.get("MAGI2_CKPT_ROOT", ""), default]
+    root = next((c for c in candidates if c and os.path.isdir(c)), "")
+    if not root:
+        raise MagiModelNodeError(
+            f"cannot find the MAGI-2 {sub}/ directory: put text_encoder/ and stable-audio-open-1.0/ in {default}, "
+            "or set the node's ckpt_root, or the MAGI2_CKPT_ROOT environment variable")
     path = root if os.path.basename(os.path.normpath(root)) == sub else os.path.join(root, sub)
     if not os.path.isdir(path):
         raise MagiModelNodeError(f"{root} has no {sub}/ directory")

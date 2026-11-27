@@ -23,8 +23,9 @@ Files (list them with `--extra-model-paths-config` or put them under `models/`):
 | `Wan2.2_VAE.pth` | `vae` | 2.8 GB | the release, unchanged |
 
 The text encoder (`text_encoder/`, 52 GB) and the audio VAE (`stable-audio-open-1.0/`) are read
-from the release's own directories by the MAGI-2 nodes: set `MAGI2_CKPT_ROOT` to the directory
-holding them, or fill in the nodes' `ckpt_root`.
+from the release's own directories by the MAGI-2 nodes. Put both directories (or symlinks to
+them) in `models/magi2/` and nothing else is needed; otherwise set `MAGI2_CKPT_ROOT` to the
+directory holding them, or fill in the nodes' `ckpt_root`.
 
 Each workflow comes in two forms: `<name>.json` opens in the ComfyUI editor (generated from the
 tested API file by `tools/make_ui_workflow.py`; node layout is automatic and it has not been
