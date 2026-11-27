@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Convert a MAGI-2 adapter (from the fork's scripts/train.py) into a LoRA file that
+"""Convert a MAGI-2 adapter (from training/train.py) into a LoRA file that
 ComfyUI's stock LoRA loader applies to the MAGI-2 model.
 
     python tools/adapter_to_comfy_lora.py adapter.safetensors out_lora.safetensors [--base magi2_preview_nvfp4_comfy.safetensors]

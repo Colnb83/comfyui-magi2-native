@@ -157,6 +157,10 @@ class Modality(IntEnum):
     TIME = 3
 
 
+# Training switches (default off: inference is unchanged).
+_MOE_AUTOGRAD = env_is_true("MAGI2_MOE_AUTOGRAD")
+_LAYER_CHECKPOINT = env_is_true("MAGI2_LAYER_CHECKPOINT")
+
 # ============================================================
 # activation
 # ============================================================
@@ -2788,6 +2792,16 @@ class CoreMultiHeadMoE(nn.Module):
             topk_indices=topk_indices,
             num_experts=self.num_experts,
         )
+        if _MOE_AUTOGRAD and torch.is_grad_enabled() and (x_heads.requires_grad or probs.requires_grad):
+            # MAGI2_MOE_AUTOGRAD=1 (training): the same kernel forward, plus a backward
+            # for the input and the routing probabilities. Expert weights stay constants.
+            from inference.train.moe_autograd import moe_apply
+
+            def weights():
+                with torch.no_grad():
+                    return [self._expert_weight(n) for n in ("W_gate", "W_up", "W_down")]
+
+            return moe_apply(x_heads, gather_ids, probs, expert_offsets, weights)
         return _mh_moe_fwd(
             x=x_heads,
             gather_ids=gather_ids,
@@ -3469,8 +3483,19 @@ class TransformerBlock(nn.Module):
     ) -> torch.Tensor:
         x = x.to(torch.bfloat16)
         x = modality_dispatcher._permute(x)
-        for layer in self.layers:
-            x = layer(x, rope, varlen_handler, modality_dispatcher, cp_split_sizes)
+        if _LAYER_CHECKPOINT and torch.is_grad_enabled():
+            # MAGI2_LAYER_CHECKPOINT=1 (training): keep only each layer's input and
+            # rebuild one layer's graph at a time during backward.
+            from torch.utils.checkpoint import checkpoint
+
+            for layer in self.layers:
+                x = checkpoint(
+                    layer, x, rope, varlen_handler, modality_dispatcher, cp_split_sizes,
+                    use_reentrant=False,
+                )
+        else:
+            for layer in self.layers:
+                x = layer(x, rope, varlen_handler, modality_dispatcher, cp_split_sizes)
         x = modality_dispatcher._inv_permute(x)
         return x
 

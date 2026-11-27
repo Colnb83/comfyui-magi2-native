@@ -72,6 +72,13 @@ def load_magi2_model(config: Magi2Config) -> torch.nn.Module:
 
     model = model.to(f"cuda:{torch.cuda.current_device()}")
     model.eval()
+    adapter_path = (os.environ.get("MAGI2_ADAPTER") or "").strip()
+    if adapter_path:
+        # MAGI2_ADAPTER=<file from scripts/train.py>: attach a trained adapter, un-merged.
+        from inference.train.lora import load_adapter
+
+        meta = load_adapter(model, adapter_path)
+        print_rank_0(f"[magi2] adapter {adapter_path}: step {meta.get('step')}, lora {meta.get('lora')} rank {meta.get('rank')}, native {meta.get('native')}")
     gc.collect()
     torch.cuda.empty_cache()
     return model
